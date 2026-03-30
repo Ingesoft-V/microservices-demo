@@ -19,3 +19,10 @@
 /vote/vote.iml
 
 /browser_screenshots
+
+/presentaciones
+*.pdf
+.project
+.classpath
+.settings/
+.DS_Store
