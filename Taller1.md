@@ -51,57 +51,71 @@
 
 1. **Patrón 1: Competing Consumers (Consumidores Competitivos)**
     * **Propósito:** Permite que múltiples consumidores concurrentes procesen mensajes de un canal o cola de mensajería. Esto mejora considerablemente el rendimiento y manejo de picos de tráfico al distribuir la carga de trabajo entre varios contenedores.
-    * **Implementación en el proyecto:** El servicio `worker` es el encargado de tomar los votos encolados en Redis y persistirlos en PostgreSQL. Al desplegar múltiples réplicas (pods/contenedores) del servicio `worker`, estos compiten por consumir los mensajes de la cola de Redis de forma simultánea.
+    * **Implementación en el proyecto:** El servicio `worker` es el encargado de tomar los votos encolados en **Kafka** y persistirlos en PostgreSQL. 
+      - Utiliza **consumer groups** (`voting-group`) para que múltiples instancias del worker consuman particiones distintas de forma equilibrada.
+      - Cada instancia procesa votos de forma concurrente, escalando horizontalmente sin conflicto.
+      - Identificación garantizada: utiliza `msg.Key` (ID del votante) para evitar duplicados y garantizar 1 voto por persona.
 
-2. **Patrón 2: Publisher-Subscriber (Pub/Sub) / Comunicación Asíncrona (Asynchronous Request-Reply)**
+2. **Patrón 2: Publisher-Subscriber (Pub/Sub) / Comunicación Asíncrona**
     * **Propósito:** Desacopla las partes de un sistema que producen eventos (publicadores) de aquellas que los procesan (suscriptores). El componente que emite la información no necesita esperar la respuesta, mejorando la disponibilidad y la respuesta inmediata al usuario final.
-    * **Implementación en el proyecto:** El microservicio `vote` actúa como publicador (Producer/Publisher) enviando el voto del usuario directamente a la memoria de Redis, retornando éxito inmediato al usuario en la web. El `worker` asume el rol de suscriptor asíncrono, tomando ese voto después y procesándolo en segundo plano sin bloquear el frontend de `vote`.
+    * **Implementación en el proyecto:** 
+      - **`vote` (Productor):** Publica voto en topic Kafka `votes` (mediante `kafkaTemplate.send()`) y retorna éxito al usuario en <100ms.
+      - **`worker` (Consumidor):** Asíncrono y desacoplado, procesa en background sin afectar la UX del frontend.
+      - **`result` (Lector):** Lee datos consolidados de PostgreSQL (escritos por worker) para mostrar resultados en tiempo real.
+      - **Ventaja:** El servicio `vote` nunca bloquea esperando confirmación; el `worker` procesa cuando puede sin presión de tiempo.
 
 ## 4. Diagrama de Arquitectura (15.0%) [cite: 10]
 A continuación se presenta el flujo de la aplicación *Docker Voting App* y su interacción a nivel de servicios y datos e infraestructura abstraída en red.
 
 ```mermaid
 graph TD
-    %% Estilos de los nodos
     classDef frontend fill:#2a82da,stroke:#1a528a,stroke-width:2px,color:#fff
     classDef worker fill:#e6a715,stroke:#b1800f,stroke-width:2px,color:#fff
-    classDef inmemory fill:#d34545,stroke:#9d3434,stroke-width:2px,color:#fff
+    classDef broker fill:#d34545,stroke:#9d3434,stroke-width:2px,color:#fff
     classDef db fill:#2b965f,stroke:#1d6641,stroke-width:2px,color:#fff
     classDef external fill:#fcfcfc,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    classDef ci fill:#6f42c1,stroke:#4a2980,stroke-width:2px,color:#fff
+    classDef infra fill:#ff6b6b,stroke:#cc5555,stroke-width:2px,color:#fff
 
-    %% Actores Externos y Punto de Entrada
     Votante((Usuario Votante)):::external
     Observador((Usuario Observador)):::external
-    Ingress[Ingress / Load Balancer Cloud]:::external
 
-    %% Microservicios
-    vote["Vote Service<br/>(Java Web App)"]:::frontend
-    result["Result Service<br/>(Node.js Web App)"]:::frontend
-    worker["Worker Service<br/>(Go)"]:::worker
+    Ingress["Load Balancer\n(Cloud)"]:::external
 
-    %% Bases de Datos / Almacenamiento
-    kafka["Kafka<br/>(Event Streaming)"]:::broker
-    postgres[("PostgreSQL<br/>(Persistent DB)")]:::db
+    Vote["Vote Service\n(Java Spring Boot)"]:::frontend
+    Result["Result Service\n(Node.js)"]:::frontend
+    Worker["Worker Service\n(Go)\nx N réplicas"]:::worker
 
-    %% Relaciones / Flujo de datos
-    Votante -->|"Vota HTTP"| Ingress
-    Observador -->|"Consulta HTTP"| Ingress
-    
-    Ingress -->|"Enruta tráfico web"| vote
-    Ingress -->|"Enruta tráfico web"| result
-    
-    vote -->|"Publica Voto (Productor)"| kafka
-    worker -- "Consume Votos Competitivamente" --> kafka
-    
-    worker -->|"Persiste Voto Consolidado"| postgres
-    result -->|"Lee Resumen de Votaciones"| postgres
+    Kafka["Kafka Topic: votes\n(Event Broker)"]:::broker
+    Postgres[("PostgreSQL\n(Persistent DB)")]:::db
+
+    GitHub["GitHub Actions\n(CI/CD)"]:::ci
+    Terraform["Terraform\n(IaC)"]:::infra
+
+    Votante -->|"HTTP POST /vote"| Ingress
+    Observador -->|"HTTP GET /results"| Ingress
+
+    Ingress -->|"enruta"| Vote
+    Ingress -->|"enruta"| Result
+
+    Vote -->|"Publica Voto\n(Productor)"| Kafka
+    Worker -->|"Consume Votos\n(Consumer Group: voting-group)"| Kafka
+
+    Worker -->|"INSERT voto"| Postgres
+    Result -->|"SELECT resultados"| Postgres
+
+    GitHub -->|"tests + build + push"| Vote
+    GitHub -->|"tests + build + push"| Worker
+    GitHub -->|"tests + build + push"| Result
+    Terraform -->|"provision infraestructura"| Ingress
 ```
 
 **Explicación del flujo:**
-1. Los **usuarios** interactúan a través de un *Load Balancer/Ingress* en la nube que enruta el tráfico al microservicio expuesto.
-2. El servicio **`vote`** es una interfaz web ligera que acepta el voto y lo inserta en **`redis`**, el cual actúa como una memoria/cola temporal y rápida (alta disponibilidad).
-3. Uno o múltiples contenedores **`worker`** monitorean la cola de `redis`, sacan los votos para procesarlos en segundo plano y los escriben permanentemente en la base de datos relacional **`postgres`**.
-4. El servicio **`result`** lee los datos de voto consolidados directamente de **`postgres`** y se los muestra en tiempo real al usuario de consulta.
+1. Los **usuarios** interactúan a través de un *Load Balancer/Ingress* en la nube que enruta el tráfico a los microservicios.
+2. El servicio **`vote`** es una interfaz web ligera (Spring Boot) que acepta el voto y lo publica directamente en el topic Kafka `votes` (Producer Pattern).
+3. Múltiples instancias del **`worker`** (Go) consumen competitivamente del topic Kafka usando consumer group `voting-group`, garantizando escalabilidad horizontal (Competing Consumers Pattern).
+4. Cada **`worker`** recibe votos con `msg.Key = ID_votante`, insertándolos en PostgreSQL con identificación única (evita duplicados).
+5. El servicio **`result`** (Node.js) lee datos consolidados directamente de PostgreSQL y los sirve en tiempo real al usuario observador.
 
 
 ---
