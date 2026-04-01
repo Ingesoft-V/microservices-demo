@@ -45,6 +45,10 @@ jobs:
         working-directory: worker
         run: go mod download
 
+      - name: Generate go.sum entries
+        working-directory: worker
+        run: go mod tidy
+
       - name: Build worker service
         working-directory: worker
         run: go build ./...
