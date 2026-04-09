@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	"database/sql"
 	"fmt"
@@ -16,9 +20,9 @@ import (
 )
 
 var (
-	brokerList        = kingpin.Flag("brokerList", "List of brokers to connect").Default("kafka:9092").Strings()
-	topic             = kingpin.Flag("topic", "Topic name").Default("votes").String()
-	messageCountStart = kingpin.Flag("messageCountStart", "Message counter start from:").Int()
+	brokerList = kingpin.Flag("brokerList", "List of brokers to connect").Default("kafka:9092").Strings()
+	topic      = kingpin.Flag("topic", "Topic name").Default("votes").String()
+	group      = kingpin.Flag("group", "Consumer group name").Default("voting-group").String()
 )
 
 const (
@@ -30,6 +34,8 @@ const (
 )
 
 func main() {
+	kingpin.Parse()
+
 	db := openDatabase()
 	defer db.Close()
 
@@ -45,38 +51,85 @@ func main() {
 		log.Panic(err)
 	}
 
-	master := getKafkaMaster()
-	defer master.Close()
+	consumerGroup := getKafkaConsumerGroup()
+	defer consumerGroup.Close()
 
-	consumer, err := master.ConsumePartition(*topic, 0, sarama.OffsetOldest)
-	if err != nil {
-		log.Panic(err)
-	}
+	processed := &atomic.Uint64{}
+	handler := &voteConsumerGroupHandler{db: db, processed: processed}
 
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-	doneCh := make(chan struct{})
+ 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		<-signals
+		fmt.Println("Interrupt is detected")
+		cancel()
+	}()
+
 	go func() {
 		for {
-			select {
-			case err := <-consumer.Errors():
-				fmt.Println(err)
-			case msg := <-consumer.Messages():
-				*messageCountStart++
-				fmt.Printf("Received message: user %s vote %s\n", string(msg.Key), string(msg.Value))
+			if err := consumerGroup.Consume(ctx, []string{*topic}, handler); err != nil {
+				log.Printf("Consumer group error: %v", err)
+				time.Sleep(1 * time.Second)
+			}
 
-				insertDynStmt := `insert into "votes"("id", "vote") values($1, $2) on conflict(id) do update set vote = $2`
-				if _, err := db.Exec(insertDynStmt, *messageCountStart, string(msg.Value)); err != nil {
-					log.Panic(err)
-				}
-			case <-signals:
-				fmt.Println("Interrupt is detected")
-				doneCh <- struct{}{}
+			if ctx.Err() != nil {
+				return
 			}
 		}
 	}()
-	<-doneCh
-	log.Println("Processed", *messageCountStart, "messages")
+
+	for err := range consumerGroup.Errors() {
+		log.Printf("Kafka consumer group async error: %v", err)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+
+	log.Println("Processed", processed.Load(), "messages")
+}
+
+type voteConsumerGroupHandler struct {
+	db        *sql.DB
+	processed *atomic.Uint64
+}
+
+func (h *voteConsumerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error {
+	return nil
+}
+
+func (h *voteConsumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error {
+	return nil
+}
+
+func (h *voteConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for msg := range claim.Messages() {
+		voterID := string(msg.Key)
+		voteValue := string(msg.Value)
+
+		if voterID == "" {
+			log.Printf("Skipping message at offset %d because key is empty", msg.Offset)
+			session.MarkMessage(msg, "empty-key")
+			continue
+		}
+
+		fmt.Printf("Received message: user %s vote %s\n", voterID, voteValue)
+
+		insertDynStmt := `insert into "votes"("id", "vote") values($1, $2) on conflict(id) do update set vote = $2`
+		if _, err := h.db.Exec(insertDynStmt, voterID, voteValue); err != nil {
+			log.Printf("Error persisting vote for voter %s: %v", voterID, err)
+			session.MarkMessage(msg, "db-error")
+			continue
+		}
+
+		h.processed.Add(1)
+		session.MarkMessage(msg, "processed")
+	}
+
+	return nil
 }
 
 func openDatabase() *sql.DB {
@@ -86,6 +139,7 @@ func openDatabase() *sql.DB {
 		if err == nil {
 			return db
 		}
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -96,20 +150,23 @@ func pingDatabase(db *sql.DB) {
 			fmt.Println("Postgresql connected!")
 			return
 		}
+		time.Sleep(1 * time.Second)
 	}
 }
 
-func getKafkaMaster() sarama.Consumer {
-	kingpin.Parse()
+func getKafkaConsumerGroup() sarama.ConsumerGroup {
 	config := sarama.NewConfig()
+	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Return.Errors = true
+	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
 	brokers := *brokerList
 	fmt.Println("Waiting for kafka...")
 	for {
-		master, err := sarama.NewConsumer(brokers, config)
+		consumerGroup, err := sarama.NewConsumerGroup(brokers, *group, config)
 		if err == nil {
 			fmt.Println("Kafka connected!")
-			return master
+			return consumerGroup
 		}
+		time.Sleep(1 * time.Second)
 	}
 }
