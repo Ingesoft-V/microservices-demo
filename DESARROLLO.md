@@ -40,6 +40,9 @@ docker-compose --version
 ```bash
 git clone https://github.com/tu-usuario/microservices-demo.git
 cd microservices-demo
+
+# Crear archivo de configuración centralizada
+cp .env.example .env
 ```
 
 ### 2. Construir e iniciar servicios
@@ -301,15 +304,20 @@ Personalizables en `docker-compose.yml`:
 | `POSTGRES_USER` | `okteto` | Usuario PostgreSQL |
 | `POSTGRES_PASSWORD` | `okteto` | Contraseña PostgreSQL |
 | `POSTGRES_DB` | `votes` | Base de datos |
-| `KAFKA_BROKERS` | `kafka:29092` | Broker de Kafka |
+| `KAFKA_EXTERNAL_PORT` | `9092` | Puerto Kafka expuesto al host |
+| `KAFKA_INTERNAL_PORT` | `29092` | Puerto interno Kafka en red Docker |
 | `KAFKA_TOPIC` | `votes` | Topic de Kafka |
 | `KAFKA_GROUP` | `voting-group` | Consumer group |
+| `KAFKA_TOPIC_PARTITIONS` | `3` | Particiones para competir consumidores |
+| `VOTE_EXTERNAL_PORT` | `5000` | Puerto de la app Vote |
+| `RESULT_EXTERNAL_PORT` | `5001` | Puerto de la app Result |
+| `RESULT_POLL_INTERVAL_MS` | `1000` | Frecuencia de refresco de resultados |
 
 ## Notas Importantes
 
 - **Persistencia**: Los datos de PostgreSQL se guardan en volumen `postgres_data`
 - **Networking**: Todos los servicios están en la red `voting-network`
-- **Escalabilidad**: Workers configurados con 2 réplicas por defecto
+- **Escalabilidad**: Para Competing Consumers usa `docker-compose up -d --scale worker=2` (o más)
 - **Health Checks**: Vote y Result tienen checks cada 10s
 - **Logs**: Ver `docker-compose logs -f` para debugging
 

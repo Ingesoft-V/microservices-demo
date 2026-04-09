@@ -2,6 +2,7 @@ package com.okteto.vote.controller;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
@@ -24,9 +25,11 @@ import java.util.UUID;
 public class VoteController {
     private static final String OPTION_A_ENV_VAR = "OPTION_A";
     private static final String OPTION_B_ENV_VAR = "OPTION_B";
-    private static final String KAFKA_TOPIC = "votes";
 
     private final Logger logger = LoggerFactory.getLogger(VoteController.class);
+
+    @Value("${app.kafka.topic:votes}")
+    private String kafkaTopic;
 
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
@@ -73,7 +76,7 @@ public class VoteController {
         Cookie cookie = new Cookie("voter_id", voter);
         response.addCookie(cookie);
 
-        CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(KAFKA_TOPIC, voter, vote);
+        CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(kafkaTopic, voter, vote);
 
         future.whenComplete((result, ex) -> {
             if (ex == null) {

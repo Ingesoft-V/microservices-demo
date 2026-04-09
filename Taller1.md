@@ -49,12 +49,13 @@
 ## 3. Patrones de Diseño de Nube
 *Se han implementado al menos dos patrones basándonos en los temas expuestos en clase para garantizar la escalabilidad y resiliencia del proyecto.*
 
-1. **Patrón 1: Competing Consumers (Consumidores Competitivos)**
-    * **Propósito:** Permite que múltiples consumidores concurrentes procesen mensajes de un canal o cola de mensajería. Esto mejora considerablemente el rendimiento y manejo de picos de tráfico al distribuir la carga de trabajo entre varios contenedores.
-    * **Implementación en el proyecto:** El servicio `worker` es el encargado de tomar los votos encolados en **Kafka** y persistirlos en PostgreSQL. 
-      - Utiliza **consumer groups** (`voting-group`) para que múltiples instancias del worker consuman particiones distintas de forma equilibrada.
-      - Cada instancia procesa votos de forma concurrente, escalando horizontalmente sin conflicto.
-      - Identificación garantizada: utiliza `msg.Key` (ID del votante) para evitar duplicados y garantizar 1 voto por persona.
+1. **Patrón 1: Producer-Consumer (con Competing Consumers)**
+        * **Propósito:** Separa productores y consumidores para procesar mensajes de forma desacoplada y escalable.
+        * **Implementación en el proyecto:**
+            - **Productor:** `vote` publica eventos de voto en Kafka.
+            - **Consumidor:** `worker` consume del topic `votes`.
+            - **Competing Consumers:** múltiples instancias de `worker` pueden ejecutar en paralelo usando consumer group `voting-group` y estrategia `RoundRobin`.
+            - **Consistencia:** `worker` persiste con `ON CONFLICT`, usando `msg.Key` como ID único de votante para evitar duplicados.
 
 2. **Patrón 2: Publisher-Subscriber (Pub/Sub) / Comunicación Asíncrona**
     * **Propósito:** Desacopla las partes de un sistema que producen eventos (publicadores) de aquellas que los procesan (suscriptores). El componente que emite la información no necesita esperar la respuesta, mejorando la disponibilidad y la respuesta inmediata al usuario final.
@@ -63,6 +64,14 @@
       - **`worker` (Consumidor):** Asíncrono y desacoplado, procesa en background sin afectar la UX del frontend.
       - **`result` (Lector):** Lee datos consolidados de PostgreSQL (escritos por worker) para mostrar resultados en tiempo real.
       - **Ventaja:** El servicio `vote` nunca bloquea esperando confirmación; el `worker` procesa cuando puede sin presión de tiempo.
+
+3. **Patrón 3: External Configuration Store**
+        * **Propósito:** Centraliza configuración operativa fuera del código para facilitar cambios por entorno sin recompilar.
+        * **Implementación en el proyecto:**
+            - Se creó `.env.example` como plantilla de configuración centralizada.
+            - `docker-compose.yml` consume variables (`POSTGRES_*`, `KAFKA_*`, puertos, topic, polling interval).
+            - `vote`, `worker` y `result` leen endpoints y parámetros desde variables de entorno con valores por defecto.
+            - Permite promover de dev a preprod/prod cambiando configuración, no código.
 
 ## 4. Diagrama de Arquitectura (15.0%) [cite: 10]
 A continuación se presenta el flujo de la aplicación *Docker Voting App* y su interacción a nivel de servicios y datos e infraestructura abstraída en red.
@@ -76,6 +85,7 @@ graph TD
     classDef external fill:#fcfcfc,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
     classDef ci fill:#6f42c1,stroke:#4a2980,stroke-width:2px,color:#fff
     classDef infra fill:#ff6b6b,stroke:#cc5555,stroke-width:2px,color:#fff
+    classDef config fill:#7f8c8d,stroke:#4d5b5c,stroke-width:2px,color:#fff
 
     Votante((Usuario Votante)):::external
     Observador((Usuario Observador)):::external
@@ -91,6 +101,7 @@ graph TD
 
     GitHub["GitHub Actions\n(CI/CD)"]:::ci
     Terraform["Terraform\n(IaC)"]:::infra
+    ConfigStore["External Configuration Store\n(.env / Secrets)"]:::config
 
     Votante -->|"HTTP POST /vote"| Ingress
     Observador -->|"HTTP GET /results"| Ingress
@@ -108,6 +119,9 @@ graph TD
     GitHub -->|"tests + build + push"| Worker
     GitHub -->|"tests + build + push"| Result
     Terraform -->|"provision infraestructura"| Ingress
+    ConfigStore -->|"variables de entorno"| Vote
+    ConfigStore -->|"variables de entorno"| Worker
+    ConfigStore -->|"variables de entorno"| Result
 ```
 
 **Explicación del flujo:**
