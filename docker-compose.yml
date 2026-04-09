@@ -1,0 +1,159 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: voting-postgres
+    environment:
+      POSTGRES_USER: okteto
+      POSTGRES_PASSWORD: okteto
+      POSTGRES_DB: votes
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U okteto"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voting-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: voting-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_INIT_LIMIT: 5
+    ports:
+      - "2181:2181"
+    networks:
+      - voting-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: voting-kafka
+    depends_on:
+      zookeeper:
+        condition: service_started
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:29092"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    networks:
+      - voting-network
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: voting-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      sh -c '
+        kafka-topics --create --topic votes --partitions 3 --replication-factor 1
+        --bootstrap-server kafka:29092 --if-not-exists &&
+        echo "✅ Kafka topic 'votes' created successfully"
+      '
+    networks:
+      - voting-network
+
+  vote:
+    build:
+      context: ./vote
+      dockerfile: Dockerfile
+    container_name: voting-vote
+    ports:
+      - "5000:80"
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: okteto
+      POSTGRES_PASSWORD: okteto
+      POSTGRES_DB: votes
+      KAFKA_TOPIC: votes
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - voting-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: voting-worker
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: okteto
+      POSTGRES_PASSWORD: okteto
+      POSTGRES_DB: votes
+      KAFKA_TOPIC: votes
+      KAFKA_GROUP: voting-group
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - voting-network
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  result:
+    build:
+      context: ./result
+      dockerfile: Dockerfile
+    container_name: voting-result
+    ports:
+      - "5001:80"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: okteto
+      POSTGRES_PASSWORD: okteto
+      POSTGRES_DB: votes
+      PORT: 80
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - voting-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  voting-network:
+    driver: bridge
