@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -20,17 +21,17 @@ import (
 )
 
 var (
-	brokerList = kingpin.Flag("brokerList", "List of brokers to connect").Default("kafka:9092").Strings()
-	topic      = kingpin.Flag("topic", "Topic name").Default("votes").String()
-	group      = kingpin.Flag("group", "Consumer group name").Default("voting-group").String()
+	brokerList = kingpin.Flag("brokerList", "List of brokers to connect").Default(getEnv("KAFKA_BROKERS", "kafka:29092")).Strings()
+	topic      = kingpin.Flag("topic", "Topic name").Default(getEnv("KAFKA_TOPIC", "votes")).String()
+	group      = kingpin.Flag("group", "Kafka consumer group").Default(getEnv("KAFKA_GROUP", "voting-group")).String()
 )
 
 const (
-	host     = "postgresql"
-	port     = 5432
-	user     = "okteto"
-	password = "okteto"
-	dbname   = "votes"
+	defaultHost     = "postgres"
+	defaultPort     = "5432"
+	defaultUser     = "okteto"
+	defaultPassword = "okteto"
+	defaultDBName   = "votes"
 )
 
 func main() {
@@ -40,11 +41,6 @@ func main() {
 	defer db.Close()
 
 	pingDatabase(db)
-
-	dropTableStmt := `DROP TABLE IF EXISTS votes`
-	if _, err := db.Exec(dropTableStmt); err != nil {
-		log.Panic(err)
-	}
 
 	createTableStmt := `CREATE TABLE IF NOT EXISTS votes (id VARCHAR(255) NOT NULL UNIQUE, vote VARCHAR(255) NOT NULL)`
 	if _, err := db.Exec(createTableStmt); err != nil {
@@ -58,7 +54,7 @@ func main() {
 	handler := &voteConsumerGroupHandler{db: db, processed: processed}
 
 	signals := make(chan os.Signal, 1)
- 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,7 +68,7 @@ func main() {
 	go func() {
 		for {
 			if err := consumerGroup.Consume(ctx, []string{*topic}, handler); err != nil {
-				log.Printf("Consumer group error: %v", err)
+				log.Printf("consumer group error: %v", err)
 				time.Sleep(1 * time.Second)
 			}
 
@@ -82,12 +78,7 @@ func main() {
 		}
 	}()
 
-	for err := range consumerGroup.Errors() {
-		log.Printf("Kafka consumer group async error: %v", err)
-		if ctx.Err() != nil {
-			break
-		}
-	}
+	<-ctx.Done()
 
 	log.Println("Processed", processed.Load(), "messages")
 }
@@ -132,8 +123,22 @@ func (h *voteConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 	return nil
 }
 
+func getEnv(key string, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 func openDatabase() *sql.DB {
-	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
+	host := getEnv("POSTGRES_HOST", defaultHost)
+	port := getEnv("POSTGRES_PORT", defaultPort)
+	user := getEnv("POSTGRES_USER", defaultUser)
+	password := getEnv("POSTGRES_PASSWORD", defaultPassword)
+	dbname := getEnv("POSTGRES_DB", defaultDBName)
+
+	psqlconn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 	for {
 		db, err := sql.Open("postgres", psqlconn)
 		if err == nil {
@@ -160,6 +165,10 @@ func getKafkaConsumerGroup() sarama.ConsumerGroup {
 	config.Consumer.Return.Errors = true
 	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
 	brokers := *brokerList
+	if len(brokers) == 1 && strings.Contains(brokers[0], ",") {
+		brokers = strings.Split(brokers[0], ",")
+	}
+
 	fmt.Println("Waiting for kafka...")
 	for {
 		consumerGroup, err := sarama.NewConsumerGroup(brokers, *group, config)

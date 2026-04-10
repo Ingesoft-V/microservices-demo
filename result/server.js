@@ -11,6 +11,16 @@ var express = require('express'),
   });
 
 var port = process.env.PORT || 4000;
+var dbHost = process.env.POSTGRES_HOST || 'postgres';
+var dbPort = process.env.POSTGRES_PORT || '5432';
+var dbUser = process.env.POSTGRES_USER || 'okteto';
+var dbPassword = process.env.POSTGRES_PASSWORD || 'okteto';
+var dbName = process.env.POSTGRES_DB || 'votes';
+var pollIntervalMs = parseInt(process.env.RESULT_POLL_INTERVAL_MS || '1000', 10);
+var dbRetryTimes = parseInt(process.env.RESULT_DB_RETRY_TIMES || '1000', 10);
+var dbRetryIntervalMs = parseInt(process.env.RESULT_DB_RETRY_INTERVAL_MS || '1000', 10);
+var connectionString =
+  'postgres://' + dbUser + ':' + dbPassword + '@' + dbHost + ':' + dbPort + '/' + dbName;
 
 io.sockets.on('connection', function (socket) {
   socket.emit('message', { text: 'Welcome!' });
@@ -21,11 +31,11 @@ io.sockets.on('connection', function (socket) {
 });
 
 var pool = new pg.Pool({
-  connectionString: 'postgres://okteto:okteto@postgresql/votes',
+  connectionString: connectionString,
 });
 
 async.retry(
-  { times: 1000, interval: 1000 },
+  { times: dbRetryTimes, interval: dbRetryIntervalMs },
   function (callback) {
     pool.connect(function (err, client, done) {
       if (err) {
@@ -58,7 +68,7 @@ function getVotes(client) {
 
       setTimeout(function () {
         getVotes(client);
-      }, 1000);
+      }, pollIntervalMs);
     }
   );
 }
