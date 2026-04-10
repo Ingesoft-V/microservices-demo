@@ -73,6 +73,13 @@
             - `vote`, `worker` y `result` leen endpoints y parámetros desde variables de entorno con valores por defecto.
             - Permite promover de dev a preprod/prod cambiando configuración, no código.
 
+4. **Patrón 4: Retry**
+        * **Propósito:** Reintenta operaciones transitorias cuando un recurso externo aún no está listo o falla temporalmente.
+        * **Implementación en el proyecto:**
+            - `result/server.js` usa `async.retry` para reconectar a PostgreSQL antes de comenzar a emitir resultados.
+            - Los tiempos y cantidad de reintentos se pueden ajustar con `RESULT_DB_RETRY_TIMES` y `RESULT_DB_RETRY_INTERVAL_MS`.
+            - Esto evita que el servicio falle si la base de datos tarda unos segundos más en arrancar.
+
 ## 4. Diagrama de Arquitectura (15.0%) [cite: 10]
 A continuación se presenta el flujo de la aplicación *Docker Voting App* y su interacción a nivel de servicios y datos e infraestructura abstraída en red.
 
