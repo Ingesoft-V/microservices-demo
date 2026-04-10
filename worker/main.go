@@ -63,7 +63,7 @@ func main() {
 		<-signals
 		fmt.Println("Interrupt is detected")
 		cancel()
- 	}()
+	}()
 
 	go func() {
 		for {
@@ -80,6 +80,10 @@ func main() {
 
 	for err := range consumerGroup.Errors() {
 		log.Printf("consumer group async error: %v", err)
+		if ctx.Err() != nil {
+			break
+		}
+	}
 		if ctx.Err() != nil {
 			break
 		}
@@ -169,7 +173,6 @@ func getKafkaConsumerGroup() sarama.ConsumerGroup {
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Return.Errors = true
 	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
-
 	brokers := *brokerList
 	if len(brokers) == 1 && strings.Contains(brokers[0], ",") {
 		brokers = strings.Split(brokers[0], ",")
