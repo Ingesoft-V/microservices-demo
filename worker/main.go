@@ -78,16 +78,7 @@ func main() {
 		}
 	}()
 
-	for err := range consumerGroup.Errors() {
-		log.Printf("consumer group async error: %v", err)
-		if ctx.Err() != nil {
-			break
-		}
-	}
-		if ctx.Err() != nil {
-			break
-		}
-	}
+	<-ctx.Done()
 
 	log.Println("Processed", processed.Load(), "messages")
 }
