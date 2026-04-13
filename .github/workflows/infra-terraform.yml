@@ -90,6 +90,9 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
       TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+      TF_STATE_RESOURCE_GROUP: ${{ secrets.TF_STATE_RG }}
+      TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ secrets.TF_STATE_CONTAINER }}
 
     steps:
       - name: Checkout
@@ -120,23 +123,31 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "file=${{ inputs.environment }}.tfvars" >> "$GITHUB_OUTPUT"
+            echo "state_key=${{ inputs.environment }}.tfstate" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.base_ref }}" = "production" ]; then
             echo "file=prod.tfvars" >> "$GITHUB_OUTPUT"
+            echo "state_key=prod.tfstate" >> "$GITHUB_OUTPUT"
           else
             echo "file=preprod.tfvars" >> "$GITHUB_OUTPUT"
+            echo "state_key=preprod.tfstate" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Skip plan if required secrets are not configured
-        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '')
-        run: echo "Required secrets not configured (ARM_* and/or VM_SSH_PUBLIC_KEY). Skipping terraform plan."
+        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '' || env.TF_STATE_RESOURCE_GROUP == '' || env.TF_STATE_STORAGE_ACCOUNT == '' || env.TF_STATE_CONTAINER == '')
+        run: echo "Required secrets not configured (ARM_*, VM_SSH_PUBLIC_KEY, TF_STATE_RG, TF_STATE_STORAGE_ACCOUNT, TF_STATE_CONTAINER). Skipping terraform plan."
 
       - name: Terraform Init
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != '' && env.TF_STATE_RESOURCE_GROUP != '' && env.TF_STATE_STORAGE_ACCOUNT != '' && env.TF_STATE_CONTAINER != ''
         working-directory: infra/terraform
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=$TF_STATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TF_STATE_CONTAINER" \
+            -backend-config="key=${{ steps.tfvars.outputs.state_key }}"
 
       - name: Terraform Plan
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != '' && env.TF_STATE_RESOURCE_GROUP != '' && env.TF_STATE_STORAGE_ACCOUNT != '' && env.TF_STATE_CONTAINER != ''
         working-directory: infra/terraform
         run: terraform plan -input=false -var-file=${{ steps.tfvars.outputs.file }}
 
@@ -152,6 +163,9 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
       TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+      TF_STATE_RESOURCE_GROUP: ${{ secrets.TF_STATE_RG }}
+      TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ secrets.TF_STATE_CONTAINER }}
 
     steps:
       - name: Checkout
@@ -177,16 +191,21 @@ jobs:
           terraform_version: 1.8.5
 
       - name: Skip apply if required secrets are not configured
-        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '')
-        run: echo "Required secrets not configured (ARM_* and/or VM_SSH_PUBLIC_KEY). Skipping terraform apply preprod."
+        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '' || env.TF_STATE_RESOURCE_GROUP == '' || env.TF_STATE_STORAGE_ACCOUNT == '' || env.TF_STATE_CONTAINER == '')
+        run: echo "Required secrets not configured (ARM_*, VM_SSH_PUBLIC_KEY, TF_STATE_RG, TF_STATE_STORAGE_ACCOUNT, TF_STATE_CONTAINER). Skipping terraform apply preprod."
 
       - name: Terraform Init
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != '' && env.TF_STATE_RESOURCE_GROUP != '' && env.TF_STATE_STORAGE_ACCOUNT != '' && env.TF_STATE_CONTAINER != ''
         working-directory: infra/terraform
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=$TF_STATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TF_STATE_CONTAINER" \
+            -backend-config="key=preprod.tfstate"
 
       - name: Terraform Apply (preprod)
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != '' && env.TF_STATE_RESOURCE_GROUP != '' && env.TF_STATE_STORAGE_ACCOUNT != '' && env.TF_STATE_CONTAINER != ''
         working-directory: infra/terraform
         run: terraform apply -input=false -auto-approve -var-file=preprod.tfvars
 
@@ -203,6 +222,9 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
       TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+      TF_STATE_RESOURCE_GROUP: ${{ secrets.TF_STATE_RG }}
+      TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ secrets.TF_STATE_CONTAINER }}
 
     steps:
       - name: Checkout
@@ -228,15 +250,20 @@ jobs:
           terraform_version: 1.8.5
 
       - name: Skip apply if required secrets are not configured
-        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '')
-        run: echo "Required secrets not configured (ARM_* and/or VM_SSH_PUBLIC_KEY). Skipping terraform apply prod."
+        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '' || env.TF_STATE_RESOURCE_GROUP == '' || env.TF_STATE_STORAGE_ACCOUNT == '' || env.TF_STATE_CONTAINER == '')
+        run: echo "Required secrets not configured (ARM_*, VM_SSH_PUBLIC_KEY, TF_STATE_RG, TF_STATE_STORAGE_ACCOUNT, TF_STATE_CONTAINER). Skipping terraform apply prod."
 
       - name: Terraform Init
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != '' && env.TF_STATE_RESOURCE_GROUP != '' && env.TF_STATE_STORAGE_ACCOUNT != '' && env.TF_STATE_CONTAINER != ''
         working-directory: infra/terraform
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=$TF_STATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TF_STATE_CONTAINER" \
+            -backend-config="key=prod.tfstate"
 
       - name: Terraform Apply (prod)
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != '' && env.TF_STATE_RESOURCE_GROUP != '' && env.TF_STATE_STORAGE_ACCOUNT != '' && env.TF_STATE_CONTAINER != ''
         working-directory: infra/terraform
         run: terraform apply -input=false -auto-approve -var-file=prod.tfvars
