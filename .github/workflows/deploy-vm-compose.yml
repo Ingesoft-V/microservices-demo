@@ -3,7 +3,7 @@ name: Deploy App - VM (Docker Compose)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, production]
     paths:
       - 'docker-compose.yml'
       - '.env.example'
@@ -21,18 +21,41 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_BRANCH: ${{ github.ref_name }}
+      DEPLOY_ENV: ${{ github.ref_name == 'production' && 'prod' || 'preprod' }}
+      TARGET_VM_HOST: ${{ secrets.VM_HOST }}
+      TARGET_VM_USER: ${{ secrets.VM_USER }}
+      TARGET_VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
     steps:
+      - name: Validate deploy secrets
+        run: |
+          if [ -z "$TARGET_VM_HOST" ] || [ -z "$TARGET_VM_USER" ] || [ -z "$TARGET_VM_SSH_PRIVATE_KEY" ]; then
+            echo "Missing VM secrets for environment: $DEPLOY_ENV"
+            echo "Required: VM_HOST/VM_USER/VM_SSH_PRIVATE_KEY (or PROD_VM_HOST/PROD_VM_USER/PROD_VM_SSH_PRIVATE_KEY)."
+            exit 1
+          fi
+
       - name: Deploy via SSH in VM
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          host: ${{ env.TARGET_VM_HOST }}
+          username: ${{ env.TARGET_VM_USER }}
+          key: ${{ env.TARGET_VM_SSH_PRIVATE_KEY }}
           port: 22
           script: |
             set -e
             APP_DIR=/opt/microservices-demo
+            BRANCH_NAME=${{ env.DEPLOY_BRANCH }}
             REPO_URL=https://github.com/${{ github.repository }}.git
+
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sh
+              sudo apt-get update
+              sudo apt-get install -y docker-compose-plugin
+              sudo systemctl enable docker
+              sudo systemctl restart docker
+            fi
 
             if [ ! -d "$APP_DIR/.git" ]; then
               sudo rm -rf "$APP_DIR"
@@ -43,8 +66,8 @@ jobs:
 
             cd "$APP_DIR"
             git fetch origin
-            git checkout main
-            git reset --hard origin/main
+            git checkout "$BRANCH_NAME"
+            git reset --hard "origin/$BRANCH_NAME"
 
             docker compose down || true
             docker compose up -d --build
