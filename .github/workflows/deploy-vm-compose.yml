@@ -2,6 +2,15 @@ name: Deploy App - VM (Docker Compose)
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'GitHub Environment to deploy to (used for production merge gate)'
+        required: true
+        default: 'preprod'
+        type: choice
+        options:
+          - preprod
+          - production
   push:
     branches: [main, production]
     paths:
@@ -21,9 +30,11 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'production' && 'production' || 'preprod') }}
     env:
       DEPLOY_BRANCH: ${{ github.ref_name }}
-      DEPLOY_ENV: ${{ github.ref_name == 'production' && 'prod' || 'preprod' }}
+      DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'production' && 'production' || 'preprod') }}
       TARGET_VM_HOST: ${{ secrets.VM_HOST }}
       TARGET_VM_USER: ${{ secrets.VM_USER }}
       TARGET_VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
