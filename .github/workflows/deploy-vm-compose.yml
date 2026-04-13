@@ -69,6 +69,21 @@ jobs:
             git checkout "$BRANCH_NAME"
             git reset --hard "origin/$BRANCH_NAME"
 
-            docker compose down || true
+            docker compose down --remove-orphans || true
+
+            # These services use fixed container names. If a previous deployment ran from a different
+            # directory/project, docker compose won't be able to clean them up automatically.
+            for cname in \
+              voting-postgres \
+              voting-zookeeper \
+              voting-kafka \
+              voting-kafka-init \
+              voting-vote \
+              voting-worker \
+              voting-result
+            do
+              docker rm -f "${cname}" >/dev/null 2>&1 || true
+            done
+
             docker compose up -d --build
             docker image prune -f
