@@ -1,0 +1,94 @@
+name: Deploy App - Preprod (AKS)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'k8s/preprod/**'
+      - '.github/workflows/deploy-app-preprod.yml'
+      - 'vote/**'
+      - 'worker/**'
+      - 'result/**'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+      AKS_RESOURCE_GROUP: ${{ secrets.AKS_RG }}
+      AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login Azure (Service Principal)
+        run: |
+          az login --service-principal \
+            --username "$ARM_CLIENT_ID" \
+            --password "$ARM_CLIENT_SECRET" \
+            --tenant "$ARM_TENANT_ID"
+          az account set --subscription "$ARM_SUBSCRIPTION_ID"
+
+      - name: Resolve ACR login server
+        id: acr
+        run: |
+          ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)
+          echo "login_server=$ACR_LOGIN_SERVER" >> "$GITHUB_OUTPUT"
+
+      - name: Login ACR
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push vote image
+        run: |
+          docker build -t "${{ steps.acr.outputs.login_server }}/vote:${{ github.sha }}" ./vote
+          docker push "${{ steps.acr.outputs.login_server }}/vote:${{ github.sha }}"
+
+      - name: Build and push worker image
+        run: |
+          docker build -t "${{ steps.acr.outputs.login_server }}/worker:${{ github.sha }}" ./worker
+          docker push "${{ steps.acr.outputs.login_server }}/worker:${{ github.sha }}"
+
+      - name: Build and push result image
+        run: |
+          docker build -t "${{ steps.acr.outputs.login_server }}/result:${{ github.sha }}" ./result
+          docker push "${{ steps.acr.outputs.login_server }}/result:${{ github.sha }}"
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "$AKS_RESOURCE_GROUP" \
+            --name "$AKS_CLUSTER_NAME" \
+            --overwrite-existing
+
+      - name: Apply Kubernetes manifests
+        run: kubectl apply -f k8s/preprod
+
+      - name: Update images in deployments
+        run: |
+          kubectl -n voting-preprod set image deployment/vote vote="${{ steps.acr.outputs.login_server }}/vote:${{ github.sha }}"
+          kubectl -n voting-preprod set image deployment/worker worker="${{ steps.acr.outputs.login_server }}/worker:${{ github.sha }}"
+          kubectl -n voting-preprod set image deployment/result result="${{ steps.acr.outputs.login_server }}/result:${{ github.sha }}"
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n voting-preprod rollout status deployment/postgres --timeout=180s
+          kubectl -n voting-preprod rollout status deployment/zookeeper --timeout=180s
+          kubectl -n voting-preprod rollout status deployment/kafka --timeout=180s
+          kubectl -n voting-preprod rollout status deployment/vote --timeout=180s
+          kubectl -n voting-preprod rollout status deployment/worker --timeout=180s
+          kubectl -n voting-preprod rollout status deployment/result --timeout=180s
+
+      - name: Show services
+        run: kubectl -n voting-preprod get svc -o wide

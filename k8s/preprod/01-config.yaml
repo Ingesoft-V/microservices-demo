@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: voting-preprod
+data:
+  OPTION_A: "Burritos"
+  OPTION_B: "Tacos"
+  KAFKA_BROKERS: "kafka:9092"
+  KAFKA_TOPIC: "votes"
+  KAFKA_GROUP: "voting-group"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "votes"
+  POSTGRES_USER: "okteto"
+  RESULT_POLL_INTERVAL_MS: "1000"
+  RESULT_DB_RETRY_TIMES: "1000"
+  RESULT_DB_RETRY_INTERVAL_MS: "1000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: voting-preprod
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "okteto"
