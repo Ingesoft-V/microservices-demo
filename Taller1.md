@@ -1,14 +1,15 @@
 # Taller 1 - Construcción de Pipelines en Cloud
 **Curso:** Ingeniería de Software V  
-**Fecha de Presentación:** 13 de Abril
-**Proyecto Base:** [Microservices Demo (Okteto)](https://github.com/okteto/microservices-demo)
+**Fecha de Presentación:** 13 de Abril  
+**Proyecto Base:** [Microservices Demo (Okteto)](https://github.com/okteto/microservices-demo)  
+**Repositorio del equipo:** https://github.com/Ingesoft-V/microservices-demo
 
 ---
 
 ## Metodología Ágil Seleccionada
 
 * **Metodología:** Scrum
-* [cite_start]**Justificación:** Como se menciona, el proyecto debe poder ser utilizado por un equipo ágil, por lo que se escoge scrum como metodología a usar. Esto permite alta adaptabilidad a cambios, entregas tempranas y frecuentes de valor funcional, y una rápida retroalimentación.
+* **Justificación:** El proyecto debe poder ser utilizado por un equipo ágil, por lo que se escoge Scrum. Esto permite alta adaptabilidad a cambios, entregas tempranas y frecuentes de valor funcional, y una rápida retroalimentación.
 
 ---
 
@@ -34,10 +35,10 @@
 
 * **Modelo:** GitOps (Modelo Branch-per-Environment)
 * **Descripción:** Su objetivo principal es que el repositorio sea la única fuente de verdad del estado de tus entornos.
-    * Rama `main`: Representa el entorno de pre-producción, donde los pipelines de desarrollo (CI) actualizan las etiquetas de las imágenes Docker automáticamente tras pasar las pruebas.
+    * Rama `main`: Representa el entorno de pre-producción.
     * Rama `production`: Representa el estado real de lo que ven los usuarios finales. Nadie hace cambios directos aquí.
     * Para pasar un cambio de Pre-Producción a Producción se abre un Pull Request de `main` hacia `production`.
-    * Sincronización Automática: Una vez que el PR se aprueba y se hace merge, se desencadena una actualización de infraestructura.
+    * Promoción controlada: una vez el PR se aprueba y se hace merge, se dispara el despliegue del entorno correspondiente (CD) y la infraestructura se gestiona por un workflow separado.
 * **Justificación:** 
     *  **Fuente Única de Verdad:** El estado de la infraestructura está totalmente definido y versionado en el repositorio.
     * **Control de Promoción:** Los cambios pasan de `main` (Pre-producción) a `production` solo mediante Pull Requests aprobados, evitando errores manuales.
@@ -80,56 +81,10 @@
             - Los tiempos y cantidad de reintentos se pueden ajustar con `RESULT_DB_RETRY_TIMES` y `RESULT_DB_RETRY_INTERVAL_MS`.
             - Esto evita que el servicio falle si la base de datos tarda unos segundos más en arrancar.
 
-## 4. Diagrama de Arquitectura (15.0%) [cite: 10]
+## 4. Diagrama de Arquitectura (15.0%)
 A continuación se presenta el flujo de la aplicación *Docker Voting App* y su interacción a nivel de servicios y datos e infraestructura abstraída en red.
 
-```mermaid
-graph TD
-    classDef frontend fill:#2a82da,stroke:#1a528a,stroke-width:2px,color:#fff
-    classDef worker fill:#e6a715,stroke:#b1800f,stroke-width:2px,color:#fff
-    classDef broker fill:#d34545,stroke:#9d3434,stroke-width:2px,color:#fff
-    classDef db fill:#2b965f,stroke:#1d6641,stroke-width:2px,color:#fff
-    classDef external fill:#fcfcfc,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
-    classDef ci fill:#6f42c1,stroke:#4a2980,stroke-width:2px,color:#fff
-    classDef infra fill:#ff6b6b,stroke:#cc5555,stroke-width:2px,color:#fff
-    classDef config fill:#7f8c8d,stroke:#4d5b5c,stroke-width:2px,color:#fff
-
-    Votante((Usuario Votante)):::external
-    Observador((Usuario Observador)):::external
-
-    Ingress["Load Balancer\n(Cloud)"]:::external
-
-    Vote["Vote Service\n(Java Spring Boot)"]:::frontend
-    Result["Result Service\n(Node.js)"]:::frontend
-    Worker["Worker Service\n(Go)\nx N réplicas"]:::worker
-
-    Kafka["Kafka Topic: votes\n(Event Broker)"]:::broker
-    Postgres[("PostgreSQL\n(Persistent DB)")]:::db
-
-    GitHub["GitHub Actions\n(CI/CD)"]:::ci
-    Doctl["doctl\n(DigitalOcean IaC)"]:::infra
-    ConfigStore["External Configuration Store\n(.env / Secrets)"]:::config
-
-    Votante -->|"HTTP POST /vote"| Ingress
-    Observador -->|"HTTP GET /results"| Ingress
-
-    Ingress -->|"enruta"| Vote
-    Ingress -->|"enruta"| Result
-
-    Vote -->|"Publica Voto\n(Productor)"| Kafka
-    Worker -->|"Consume Votos\n(Consumer Group: voting-group)"| Kafka
-
-    Worker -->|"INSERT voto"| Postgres
-    Result -->|"SELECT resultados"| Postgres
-
-    GitHub -->|"tests + build + push"| Vote
-    GitHub -->|"tests + build + push"| Worker
-    GitHub -->|"tests + build + push"| Result
-    Doctl -->|"provision Droplet (VM)"| Ingress
-    ConfigStore -->|"variables de entorno"| Vote
-    ConfigStore -->|"variables de entorno"| Worker
-    ConfigStore -->|"variables de entorno"| Result
-```
+![Diagrama de arquitectura](diagram_archictecture.png)
 
 **Explicación del flujo:**
 1. Los **usuarios** interactúan a través de un *Load Balancer/Ingress* en la nube que enruta el tráfico a los microservicios.
@@ -141,32 +96,36 @@ graph TD
 
 ---
 
-## 5. Pipelines de Desarrollo (15.0%) [cite: 11]
+## 5. Pipelines de Desarrollo (15.0%)
 *Detalle de la automatización del ciclo de vida de la aplicación.*
 
-* **Herramienta:** (Ej: GitHub Actions, GitLab CI, Jenkins)
-* **Tareas incluidas:** (Build, Unit Testing, Linting, Dockerization).
-* **Scripts clave:** ```bash
-    # Ejemplo de script de build/test
-    npm install
-    npm test
-    ```
+* **Herramienta:** GitHub Actions
+* **Workflow:** `.github/workflows/ci.yml`
+* **Disparadores:** `push` y `pull_request` a `main` y `production`.
+* **Tareas incluidas (por servicio):**
+    - **vote (Java/Maven):** build con `mvn -DskipTests package`.
+    - **worker (Go):** `go mod tidy` + `go build ./...`.
+    - **result (Node.js):** `npm install` + `node --check server.js`.
+* **Objetivo:** evitar que cambios incompatibles se integren a ramas protegidas.
 
 ---
 
-## [cite_start]6. Pipelines de Infraestructura (5.0%) [cite: 12]
+## 6. Pipelines de Infraestructura (5.0%)
 *Automatización del despliegue de recursos.*
 
 * **Herramienta:** GitHub Actions + `doctl`
 * **Descripción:**
-    1. Workflow de infraestructura manual (`workflow_dispatch`) con acciones `status`, `apply` y `destroy`.
-    2. `apply` crea/reutiliza un Droplet en DigitalOcean y registra llave SSH desde secret.
-    3. El pipeline devuelve IP pública para actualizar secret `VM_HOST`.
-    4. Luego se ejecuta pipeline de app por SSH para `docker compose up -d --build`.
+    1. Workflow de infraestructura: `.github/workflows/infra-digitalocean.yml`.
+    2. En **Pull Request** a `main` / `production`, ejecuta el job `infra-check` (validación rápida de archivos).
+    3. Para cambios reales de infraestructura, se ejecuta **manual** (`workflow_dispatch`) con acciones:
+        - `status`: consulta existencia e IP del droplet.
+        - `apply`: crea/reutiliza un droplet por entorno (`microservices-demo-preprod` / `microservices-demo-prod`) e instala Docker/Compose vía `cloud-init`.
+        - `destroy`: elimina el droplet del entorno.
+    4. Tras `apply`, se toma la IP y se actualiza el secret `VM_HOST`.
 
 ---
 
-## [cite_start]7. Implementación de la Infraestructura (20.0%) [cite: 13]
+## 7. Implementación de la Infraestructura (20.0%)
 * **Proveedor Cloud:** DigitalOcean
 * **Componentes:**
     - 1 Droplet Linux (VM)
@@ -174,17 +133,40 @@ graph TD
     - GitHub Actions (CI + CD + Infra)
     - SSH para despliegue remoto
 
----
-
-## [cite_start]8. Guía para Demostración en Vivo (15.0%) [cite: 14]
-*Pasos rápidos para demostrar cambios en el pipeline durante la presentación (8 min):*
-1. Realizar un cambio en el código fuente.
-2. Hacer `git push`.
-3. Observar el disparo automático del pipeline.
-4. Verificar el despliegue exitoso en el entorno de nube.
+* **Bootstrap:** `infra/digitalocean/cloud-init.yaml` instala Docker y `docker compose`.
+* **Secrets (GitHub Actions):**
+    - Infra: `DIGITALOCEAN_ACCESS_TOKEN`, `VM_SSH_PUBLIC_KEY`
+    - Deploy app: `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`
 
 ---
 
-## [cite_start]9. Documentación y Resultados (10.0%) [cite: 15]
-* **Enlace al Repositorio:** https://baselang.com/blog/basic-grammar/aca-vs-aqui-vs-ahi-vs-alli-vs-alla/
-* **Evidencias:** (Screenshots de los pipelines en verde, logs de despliegue).
+## 8. Guía para Demostración en Vivo (15.0%)
+*Pasos sugeridos para demostrar pipelines durante la presentación (8 min):*
+
+1. **Demostración Infra (PR):**
+    - Crear una rama y modificar un archivo dentro de `infra/digitalocean/**`.
+    - Abrir una PR hacia `main`.
+    - Mostrar que corre automáticamente el workflow **Infra - DigitalOcean (doctl)** con el job `infra-check`.
+
+2. **Demostración Infra (manual):**
+    - Ejecutar el workflow manual con `action=apply` y `environment=preprod`.
+    - Mostrar la IP resultante y actualizar el secret `VM_HOST`.
+
+3. **Demostración CD (Deploy App):**
+    - Hacer un cambio pequeño en alguno de los servicios o en `docker-compose.yml`.
+    - Hacer merge a `main`.
+    - Mostrar que corre el workflow **Deploy App - VM (Docker Compose)** y actualiza los contenedores en la VM.
+
+4. **Validación:**
+    - Abrir en navegador los endpoints del despliegue (puertos `5000` y `5001`).
+
+---
+
+## 9. Documentación y Resultados (10.0%)
+* **Enlace al Repositorio:** https://github.com/Ingesoft-V/microservices-demo
+* **Evidencias (para anexar):**
+    - Screenshot de la ejecución de CI en verde (PR a `main`).
+    - Screenshot de Infra `infra-check` corriendo por PR.
+    - Logs/screenshot de `workflow_dispatch` con `action=apply` mostrando IP.
+    - Screenshot del deploy (SSH) finalizando en verde.
+    - Evidencia de endpoints en ejecución (HTTP 200 en `:5000` y `:5001`).
