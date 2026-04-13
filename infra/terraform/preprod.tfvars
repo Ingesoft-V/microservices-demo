@@ -1,6 +1,6 @@
 environment    = "preprod"
 location       = "southcentralus"
-vm_size        = "Standard_D2as_v7"
+vm_size        = "Standard_B2ps_v2"
 admin_username = "azureuser"
 
 tags = {
