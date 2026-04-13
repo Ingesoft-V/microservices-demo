@@ -89,6 +89,7 @@ jobs:
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
 
     steps:
       - name: Checkout
@@ -125,17 +126,17 @@ jobs:
             echo "file=preprod.tfvars" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Skip plan if Azure secrets are not configured
-        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '')
-        run: echo "Azure credentials not configured in repo secrets. Skipping terraform plan."
+      - name: Skip plan if required secrets are not configured
+        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '')
+        run: echo "Required secrets not configured (ARM_* and/or VM_SSH_PUBLIC_KEY). Skipping terraform plan."
 
       - name: Terraform Init
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
         working-directory: infra/terraform
         run: terraform init -input=false
 
       - name: Terraform Plan
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
         working-directory: infra/terraform
         run: terraform plan -input=false -var-file=${{ steps.tfvars.outputs.file }}
 
@@ -150,6 +151,7 @@ jobs:
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
 
     steps:
       - name: Checkout
@@ -174,17 +176,17 @@ jobs:
         with:
           terraform_version: 1.8.5
 
-      - name: Skip apply if Azure secrets are not configured
-        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '')
-        run: echo "Azure credentials not configured in repo secrets. Skipping terraform apply preprod."
+      - name: Skip apply if required secrets are not configured
+        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '')
+        run: echo "Required secrets not configured (ARM_* and/or VM_SSH_PUBLIC_KEY). Skipping terraform apply preprod."
 
       - name: Terraform Init
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
         working-directory: infra/terraform
         run: terraform init -input=false
 
       - name: Terraform Apply (preprod)
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
         working-directory: infra/terraform
         run: terraform apply -input=false -auto-approve -var-file=preprod.tfvars
 
@@ -200,6 +202,7 @@ jobs:
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
 
     steps:
       - name: Checkout
@@ -224,16 +227,16 @@ jobs:
         with:
           terraform_version: 1.8.5
 
-      - name: Skip apply if Azure secrets are not configured
-        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '')
-        run: echo "Azure credentials not configured in repo secrets. Skipping terraform apply prod."
+      - name: Skip apply if required secrets are not configured
+        if: steps.tfdir.outputs.exists == 'true' && (env.ARM_CLIENT_ID == '' || env.ARM_CLIENT_SECRET == '' || env.ARM_SUBSCRIPTION_ID == '' || env.ARM_TENANT_ID == '' || env.TF_VAR_ssh_public_key == '')
+        run: echo "Required secrets not configured (ARM_* and/or VM_SSH_PUBLIC_KEY). Skipping terraform apply prod."
 
       - name: Terraform Init
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
         working-directory: infra/terraform
         run: terraform init -input=false
 
       - name: Terraform Apply (prod)
-        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != ''
+        if: steps.tfdir.outputs.exists == 'true' && env.ARM_CLIENT_ID != '' && env.ARM_CLIENT_SECRET != '' && env.ARM_SUBSCRIPTION_ID != '' && env.ARM_TENANT_ID != '' && env.TF_VAR_ssh_public_key != ''
         working-directory: infra/terraform
         run: terraform apply -input=false -auto-approve -var-file=prod.tfvars

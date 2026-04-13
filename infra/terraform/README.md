@@ -1,12 +1,18 @@
-# Terraform Bootstrap - Azure AKS
+# Terraform Bootstrap - Azure VM (Docker Compose)
 
-Infraestructura mínima para empezar en Azure con Kubernetes distribuido en más de una VM.
+Infraestructura mínima en Azure para desplegar el proyecto en **una sola VM Linux** usando Docker Compose.
 
 ## Qué crea
 - Resource Group
-- Azure Container Registry (ACR)
-- AKS (Azure Kubernetes Service) con `node_count = 2`
-- Asignación de rol `AcrPull` para que AKS pueda descargar imágenes de ACR
+- Virtual Network + Subnet
+- Public IP
+- Network Security Group con puertos abiertos:
+  - `22` (SSH)
+  - `5000` (vote)
+  - `5001` (result)
+- 1 VM Ubuntu 22.04
+
+La VM se aprovisiona con `cloud-init` para instalar Docker, Docker Compose Plugin y Git.
 
 ## Prerrequisitos (CLI)
 - `az` (Azure CLI)
@@ -26,24 +32,22 @@ terraform validate
 
 ## Plan y Apply preprod
 ```bash
+export TF_VAR_ssh_public_key="$(cat ~/.ssh/id_rsa.pub)"
 terraform plan -var-file=preprod.tfvars
 terraform apply -var-file=preprod.tfvars
 ```
 
 ## Plan y Apply prod
 ```bash
+export TF_VAR_ssh_public_key="$(cat ~/.ssh/id_rsa.pub)"
 terraform plan -var-file=prod.tfvars
 terraform apply -var-file=prod.tfvars
 ```
 
-## Obtener credenciales de AKS
+## Outputs útiles
 ```bash
-az aks get-credentials \
-  --resource-group $(terraform output -raw resource_group_name) \
-  --name $(terraform output -raw aks_cluster_name)
-```
-
-## Ver nodos (VMs del cluster)
-```bash
-kubectl get nodes
+terraform output -raw resource_group_name
+terraform output -raw vm_name
+terraform output -raw vm_public_ip
+terraform output -raw admin_username
 ```
