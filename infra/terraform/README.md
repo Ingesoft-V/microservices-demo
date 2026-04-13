@@ -22,6 +22,8 @@ terraform fmt -recursive
 terraform validate
 ```
 
+> Nota: el provider `azurerm` está configurado con `resource_provider_registrations = "none"` para evitar fallos intermitentes `409 ConflictingConcurrentWriteNotAllowed` en CI cuando Azure intenta registrar múltiples Resource Providers en paralelo.
+
 ## Plan y Apply preprod
 ```bash
 terraform plan -var-file=preprod.tfvars
