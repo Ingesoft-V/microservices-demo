@@ -1,5 +1,5 @@
 environment    = "prod"
-location       = "eastus"
+location       = "southcentralus"
 vm_size        = "Standard_B2s"
 admin_username = "azureuser"
 
