@@ -107,7 +107,7 @@ graph TD
     Postgres[("PostgreSQL\n(Persistent DB)")]:::db
 
     GitHub["GitHub Actions\n(CI/CD)"]:::ci
-    Terraform["Terraform\n(IaC)"]:::infra
+    Doctl["doctl\n(DigitalOcean IaC)"]:::infra
     ConfigStore["External Configuration Store\n(.env / Secrets)"]:::config
 
     Votante -->|"HTTP POST /vote"| Ingress
@@ -125,7 +125,7 @@ graph TD
     GitHub -->|"tests + build + push"| Vote
     GitHub -->|"tests + build + push"| Worker
     GitHub -->|"tests + build + push"| Result
-    Terraform -->|"provision infraestructura"| Ingress
+    Doctl -->|"provision Droplet (VM)"| Ingress
     ConfigStore -->|"variables de entorno"| Vote
     ConfigStore -->|"variables de entorno"| Worker
     ConfigStore -->|"variables de entorno"| Result
@@ -157,14 +157,22 @@ graph TD
 ## [cite_start]6. Pipelines de Infraestructura (5.0%) [cite: 12]
 *Automatización del despliegue de recursos.*
 
-* **Herramienta:** (Ej: Terraform, CloudFormation, Ansible)
-* **Descripción:** (Pasos para aprovisionar el clúster o servicios de nube).
+* **Herramienta:** GitHub Actions + `doctl`
+* **Descripción:**
+    1. Workflow de infraestructura manual (`workflow_dispatch`) con acciones `status`, `apply` y `destroy`.
+    2. `apply` crea/reutiliza un Droplet en DigitalOcean y registra llave SSH desde secret.
+    3. El pipeline devuelve IP pública para actualizar secret `VM_HOST`.
+    4. Luego se ejecuta pipeline de app por SSH para `docker compose up -d --build`.
 
 ---
 
 ## [cite_start]7. Implementación de la Infraestructura (20.0%) [cite: 13]
-* **Proveedor Cloud:** (Ej: AWS, Azure, GCP, Okteto)
-* **Componentes:** (Lista de servicios utilizados: K8s, Bases de Datos managed, Load Balancers, etc.)
+* **Proveedor Cloud:** DigitalOcean
+* **Componentes:**
+    - 1 Droplet Linux (VM)
+    - Docker + Docker Compose en la VM
+    - GitHub Actions (CI + CD + Infra)
+    - SSH para despliegue remoto
 
 ---
 

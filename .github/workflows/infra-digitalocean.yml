@@ -1,0 +1,159 @@
+name: Infra - DigitalOcean (doctl)
+
+on:
+  pull_request:
+    branches: [main, production]
+    paths:
+      - 'infra/digitalocean/**'
+      - '.github/workflows/infra-digitalocean.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'DigitalOcean action'
+        required: true
+        default: 'status'
+        type: choice
+        options:
+          - status
+          - apply
+          - destroy
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'preprod'
+        type: choice
+        options:
+          - preprod
+          - prod
+      region:
+        description: 'Droplet region (example: nyc1, sfo3, tor1)'
+        required: true
+        default: 'nyc1'
+        type: string
+      size:
+        description: 'Droplet size (example: s-1vcpu-1gb)'
+        required: true
+        default: 's-1vcpu-1gb'
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  infra-check:
+    name: infra-check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate DO infra files
+        run: |
+          test -f infra/digitalocean/README.md
+          test -f docker-compose.yml
+          echo "DigitalOcean infra files are present."
+
+  doctl-manage:
+    name: doctl-manage
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Validate required secrets
+        run: |
+          if [ -z "$DIGITALOCEAN_ACCESS_TOKEN" ] || [ -z "$VM_SSH_PUBLIC_KEY" ]; then
+            echo "Missing required secrets: DIGITALOCEAN_ACCESS_TOKEN and/or VM_SSH_PUBLIC_KEY"
+            exit 1
+          fi
+
+      - name: Manage droplet
+        env:
+          ACTION: ${{ inputs.action }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          REGION: ${{ inputs.region }}
+          SIZE: ${{ inputs.size }}
+        run: |
+          set -e
+          DROPLET_NAME="microservices-demo-${ENVIRONMENT}"
+          SSH_KEY_NAME="microservices-demo-${ENVIRONMENT}-key"
+
+          EXISTING_FP=$(doctl compute ssh-key list --format Name,Fingerprint --no-header | awk -v key="$SSH_KEY_NAME" '$1==key {print $2}')
+          if [ -z "$EXISTING_FP" ]; then
+            SSH_FP=$(doctl compute ssh-key create "$SSH_KEY_NAME" --public-key "$VM_SSH_PUBLIC_KEY" --format Fingerprint --no-header)
+          else
+            SSH_FP="$EXISTING_FP"
+          fi
+
+          DROPLET_ID=$(doctl compute droplet list --format ID,Name --no-header | awk -v n="$DROPLET_NAME" '$2==n {print $1}')
+
+          if [ "$ACTION" = "status" ]; then
+            if [ -z "$DROPLET_ID" ]; then
+              echo "Droplet $DROPLET_NAME does not exist."
+              exit 0
+            fi
+            DROPLET_IP=$(doctl compute droplet get "$DROPLET_ID" --format PublicIPv4 --no-header)
+            echo "Droplet: $DROPLET_NAME"
+            echo "IP: $DROPLET_IP"
+            echo "Set/update secret VM_HOST with this IP."
+            exit 0
+          fi
+
+          if [ "$ACTION" = "destroy" ]; then
+            if [ -z "$DROPLET_ID" ]; then
+              echo "Droplet $DROPLET_NAME does not exist."
+              exit 0
+            fi
+            doctl compute droplet delete -f "$DROPLET_ID"
+            echo "Deleted droplet $DROPLET_NAME"
+            exit 0
+          fi
+
+          if [ "$ACTION" = "apply" ]; then
+            if [ -z "$DROPLET_ID" ]; then
+              doctl compute droplet create "$DROPLET_NAME" \
+                --region "$REGION" \
+                --image ubuntu-22-04-x64 \
+                --size "$SIZE" \
+                --ssh-keys "$SSH_FP" \
+                --enable-monitoring \
+                --wait \
+                --tag-names "microservices-demo,${ENVIRONMENT}" \
+                --user-data-file infra/digitalocean/cloud-init.yaml \
+                --format ID,PublicIPv4 --no-header
+
+              DROPLET_ID=$(doctl compute droplet list --format ID,Name --no-header | awk -v n="$DROPLET_NAME" '$2==n {print $1}')
+            fi
+
+            DROPLET_IP=$(doctl compute droplet get "$DROPLET_ID" --format PublicIPv4 --no-header)
+
+            echo "Droplet ready: $DROPLET_NAME"
+            echo "IP: $DROPLET_IP"
+            echo "Next: set/update GitHub secret VM_HOST=$DROPLET_IP and run Deploy App - VM (Docker Compose)."
+
+            {
+              echo "### DigitalOcean infra apply result"
+              echo "- Droplet: $DROPLET_NAME"
+              echo "- IP: $DROPLET_IP"
+              echo "- Update secret: VM_HOST"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            exit 0
+          fi
+
+          echo "Unknown action: $ACTION"
+          exit 1
