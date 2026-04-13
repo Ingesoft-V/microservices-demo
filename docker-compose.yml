@@ -63,8 +63,7 @@ services:
         condition: service_healthy
     entrypoint: >
       sh -c '
-        kafka-topics --create --topic ${KAFKA_TOPIC:-votes} --partitions ${KAFKA_TOPIC_PARTITIONS:-3} --replication-factor 1
-        --bootstrap-server kafka:${KAFKA_INTERNAL_PORT:-29092} --if-not-exists &&
+        kafka-topics --create --topic ${KAFKA_TOPIC:-votes} --partitions ${KAFKA_TOPIC_PARTITIONS:-3} --replication-factor 1 --bootstrap-server kafka:${KAFKA_INTERNAL_PORT:-29092} --if-not-exists &&
         echo "✅ Kafka topic ${KAFKA_TOPIC:-votes} created successfully"
       '
     networks:
