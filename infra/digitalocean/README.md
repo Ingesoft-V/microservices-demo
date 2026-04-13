@@ -31,3 +31,5 @@ Workflow: [.github/workflows/deploy-vm-compose.yml](.github/workflows/deploy-vm-
 1. Ejecutar `Infra - DigitalOcean (doctl)` con `action=apply` y entorno.
 2. Copiar IP de salida y actualizar secret `VM_HOST`.
 3. Ejecutar `Deploy App - VM (Docker Compose)`.
+
+> Nota (demo): cambio mínimo para disparar el workflow de infra en PR a `main`.
