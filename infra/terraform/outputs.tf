@@ -2,15 +2,14 @@ output "resource_group_name" {
   value = azurerm_resource_group.this.name
 }
 
-output "acr_login_server" {
-  value = azurerm_container_registry.this.login_server
+output "vm_name" {
+  value = azurerm_linux_virtual_machine.this.name
 }
 
-output "aks_cluster_name" {
-  value = azurerm_kubernetes_cluster.this.name
+output "vm_public_ip" {
+  value = azurerm_public_ip.this.ip_address
 }
 
-output "kube_config" {
-  value     = azurerm_kubernetes_cluster.this.kube_config_raw
-  sensitive = true
+output "admin_username" {
+  value = azurerm_linux_virtual_machine.this.admin_username
 }

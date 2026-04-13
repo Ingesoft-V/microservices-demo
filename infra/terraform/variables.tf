@@ -16,22 +16,21 @@ variable "location" {
   default     = "eastus"
 }
 
-variable "node_count" {
-  description = "Number of AKS nodes (VMs)"
-  type        = number
-  default     = 2
-}
-
-variable "node_vm_size" {
-  description = "AKS node VM size"
+variable "vm_size" {
+  description = "Azure VM size"
   type        = string
   default     = "Standard_B2s"
 }
 
-variable "kubernetes_version" {
-  description = "Optional AKS version. Null uses default supported version"
+variable "admin_username" {
+  description = "Admin username for the Linux VM"
   type        = string
-  default     = null
+  default     = "azureuser"
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key content used to access the VM"
+  type        = string
 }
 
 variable "tags" {

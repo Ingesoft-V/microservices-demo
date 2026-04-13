@@ -1,0 +1,51 @@
+name: Deploy App - VM (Docker Compose)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose.yml'
+      - '.env.example'
+      - 'vote/**'
+      - 'worker/**'
+      - 'result/**'
+      - '.github/workflows/deploy-vm-compose.yml'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH in VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            APP_DIR=/opt/microservices-demo
+            REPO_URL=https://github.com/${{ github.repository }}.git
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              sudo rm -rf "$APP_DIR"
+              sudo mkdir -p "$APP_DIR"
+              sudo chown -R $USER:$USER "$APP_DIR"
+              git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
+
+            docker compose down || true
+            docker compose up -d --build
+            docker image prune -f
