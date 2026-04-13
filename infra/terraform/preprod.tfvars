@@ -1,7 +1,7 @@
-environment        = "preprod"
-location           = "eastus"
-vm_size            = "Standard_B2s"
-admin_username     = "azureuser"
+environment    = "preprod"
+location       = "eastus"
+vm_size        = "Standard_B2s"
+admin_username = "azureuser"
 
 tags = {
   managed_by  = "terraform"
